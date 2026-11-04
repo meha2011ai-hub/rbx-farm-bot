@@ -2,54 +2,91 @@ import telebot
 from telebot import types
 import time
 import os
+import sqlite3
 from flask import Flask
 import threading
 
-# Токен берем из настроек Render
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-users_data = {}
+# --- НАСТРОЙКА БАЗЫ ДАННЫХ (SQLite) ---
+DB_FILE = 'bot_database.db'
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            balance INTEGER DEFAULT 0,
+            last_click REAL DEFAULT 0
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+# Инициализируем базу при запуске
+init_db()
+
+def get_user_data(user_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT balance, last_click FROM users WHERE user_id = ?', (user_id,))
+    row = cursor.fetchone()
+    if row is None:
+        # Если пользователя нет, создаем его
+        cursor.execute('INSERT INTO users (user_id, balance, last_click) VALUES (?, 0, 0)', (user_id,))
+        conn.commit()
+        conn.close()
+        return 0, 0
+    conn.close()
+    return row[0], row[1]
+
+def update_balance(user_id, new_balance, new_last_click):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET balance = ?, last_click = ? WHERE user_id = ?', (new_balance, new_last_click, user_id))
+    conn.commit()
+    conn.close()
+
+# --- ОБРАБОТЧИКИ БОТА ---
 
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
-    if user_id not in users_data:
-        users_data[user_id] = {'balance': 0, 'last_click': 0}
-        
+    balance, _ = get_user_data(user_id)
+    
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn = types.KeyboardButton('👆 Фармить RBX')
     markup.add(btn)
     
     bot.send_message(message.chat.id, 
                      f"Привет, {message.from_user.first_name}! 👋\n"
-                     f"Твой баланс: {users_data[user_id]['balance']} RBX.\n"
+                     f"Твой баланс: {balance} RBX.\n"
                      "Жми на кнопку и фарми робуксы!", 
                      reply_markup=markup)
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    # --- ЛОГИРОВАНИЕ СООБЩЕНИЙ ---
-    # Это выведет текст в логи Render (в панели управления)
     print(f"[LOG] Пользователь {message.from_user.id} (@{message.from_user.username}) написал: {message.text}")
     
     if message.text == '👆 Фармить RBX':
         user_id = message.from_user.id
         current_time = time.time()
         
-        if user_id not in users_data:
-            users_data[user_id] = {'balance': 0, 'last_click': 0}
-
-        time_passed = current_time - users_data[user_id]['last_click']
+        # Получаем текущие данные из базы
+        balance, last_click = get_user_data(user_id)
+        time_passed = current_time - last_click
         
         if time_passed < 2:
             bot.send_message(message.chat.id, "⏳ Не так быстро! Подожди пару секунд.")
         else:
-            users_data[user_id]['balance'] += 1
-            users_data[user_id]['last_click'] = current_time
-            bot.send_message(message.chat.id, f"✅ +1 RBX\n💰 Твой баланс: {users_data[user_id]['balance']} RBX")
+            # Обновляем данные
+            new_balance = balance + 1
+            update_balance(user_id, new_balance, current_time)
+            bot.send_message(message.chat.id, f"✅ +1 RBX\n💰 Твой баланс: {new_balance} RBX")
 
-# --- Код для работы на сервере Render ---
+# --- КОД ДЛЯ RENDER ---
 app = Flask(__name__)
 
 @app.route('/')
