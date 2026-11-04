@@ -18,14 +18,13 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
-            balance INTEGER DEFAULT 0,
+            balance REAL DEFAULT 0,
             last_click REAL DEFAULT 0
         )
     ''')
     conn.commit()
     conn.close()
 
-# Инициализируем базу при запуске
 init_db()
 
 def get_user_data(user_id):
@@ -34,11 +33,10 @@ def get_user_data(user_id):
     cursor.execute('SELECT balance, last_click FROM users WHERE user_id = ?', (user_id,))
     row = cursor.fetchone()
     if row is None:
-        # Если пользователя нет, создаем его
         cursor.execute('INSERT INTO users (user_id, balance, last_click) VALUES (?, 0, 0)', (user_id,))
         conn.commit()
         conn.close()
-        return 0, 0
+        return 0.0, 0.0
     conn.close()
     return row[0], row[1]
 
@@ -56,35 +54,53 @@ def start(message):
     user_id = message.from_user.id
     balance, _ = get_user_data(user_id)
     
+    # Добавляем две кнопки
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn = types.KeyboardButton('👆 Фармить RBX')
-    markup.add(btn)
+    btn1 = types.KeyboardButton('👆 Фармить RBX')
+    btn2 = types.KeyboardButton('💸 Вывод')
+    markup.add(btn1, btn2)
     
     bot.send_message(message.chat.id, 
                      f"Привет, {message.from_user.first_name}! 👋\n"
-                     f"Твой баланс: {balance} RBX.\n"
-                     "Жми на кнопку и фарми робуксы!", 
+                     f"Твой баланс: {round(balance, 1)} RBX.\n"
+                     "Жми на кнопку и фарми робуксы! (За клик дают 0.2 RBX)", 
                      reply_markup=markup)
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     print(f"[LOG] Пользователь {message.from_user.id} (@{message.from_user.username}) написал: {message.text}")
     
+    user_id = message.from_user.id
+    current_time = time.time()
+    balance, last_click = get_user_data(user_id)
+
+    # ЛОГИКА КЛИКА
     if message.text == '👆 Фармить RBX':
-        user_id = message.from_user.id
-        current_time = time.time()
-        
-        # Получаем текущие данные из базы
-        balance, last_click = get_user_data(user_id)
         time_passed = current_time - last_click
         
         if time_passed < 2:
             bot.send_message(message.chat.id, "⏳ Не так быстро! Подожди пару секунд.")
         else:
-            # Обновляем данные
-            new_balance = balance + 1
+            new_balance = balance + 0.2
             update_balance(user_id, new_balance, current_time)
-            bot.send_message(message.chat.id, f"✅ +1 RBX\n💰 Твой баланс: {new_balance} RBX")
+            bot.send_message(message.chat.id, f"✅ +0.2 RBX\n💰 Твой баланс: {round(new_balance, 1)} RBX")
+
+    # ЛОГИКА ВЫВОДА
+    elif message.text == '💸 Вывод':
+        if balance >= 30:
+            bot.send_message(message.chat.id, 
+                             f"🎉 Поздравляю! У тебя {round(balance, 1)} RBX.\n\n"
+                             f"Для получения робуксов свяжись с модератором: **@meha2011**\n"
+                             f"Ссылка на профиль: https://t.me/Meha2011\n\n"
+                             f"*Напиши ему, что ты из бота RBX Farm, и укажи свой ID: {user_id}*",
+                             parse_mode='Markdown')
+        else:
+            needed = 30 - balance
+            bot.send_message(message.chat.id, 
+                             f"❌ У тебя пока только {round(balance, 1)} RBX.\n"
+                             f"Для вывода нужно минимум 30 RBX. Тебе осталось нафармить: **{round(needed, 1)}** RBX.",
+                             parse_mode='Markdown')
+
 
 # --- КОД ДЛЯ RENDER ---
 app = Flask(__name__)
