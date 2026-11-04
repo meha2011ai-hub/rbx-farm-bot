@@ -29,6 +29,10 @@ def start(message):
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
+    # --- ЛОГИРОВАНИЕ СООБЩЕНИЙ ---
+    # Это выведет текст в логи Render (в панели управления)
+    print(f"[LOG] Пользователь {message.from_user.id} (@{message.from_user.username}) написал: {message.text}")
+    
     if message.text == '👆 Фармить RBX':
         user_id = message.from_user.id
         current_time = time.time()
